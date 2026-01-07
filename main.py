@@ -3,125 +3,174 @@ import os, json, random, subprocess, sys, requests, time
 from datetime import datetime
 from threading import Thread
 
-# --- [MADDE 10 & 11] GÜVENLİK VE GİZLİLİK (STEALTH) MOTORU ---
-class StealthEngine:
+# --- [MADDE 1, 6, 9] SİSTEM VE VERİ YÖNETİMİ ---
+class EMSCore:
     def __init__(self):
-        self.ua_path = "config/user_agents.json"
-        self.default_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
-            "Mozilla/5.0 (SMART-TV; Linux; WebOS) AppleWebkit/537.36",
-            "Mozilla/5.0 (Linux; Android 13; SM-S901B) Chrome/110.0.0.0",
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/605.1"
-            # ... 20+ UA buraya eklenir
-        ]
-        self.prepare()
-
-    def prepare(self):
-        if not os.path.exists("config"): os.makedirs("config")
-        if not os.path.exists(self.ua_path):
-            with open(self.ua_path, "w") as f: json.dump(self.default_agents, f)
-        with open(self.ua_path, "r") as f: self.agents = json.load(f)
-
-    def get_headers(self):
-        return {
-            "User-Agent": random.choice(self.agents),
-            "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8",
-            "Connection": "keep-alive",
-            "DNT": "1"
+        self.paths = {
+            "config": "config/settings.json",
+            "favs": "config/favorites.json",
+            "ua": "config/user_agents.json",
+            "bin": "bin",
+            "downloads": "Downloads"
         }
+        self.init_system()
 
-# --- [MADDE 2, 3, 4, 8, 9] İNDİRME VE PANEL YÖNETİMİ ---
-class CoreEngine:
-    def __init__(self):
-        self.download_path = "Downloads"
-        if not os.path.exists(self.download_path): os.makedirs(self.download_path)
-
-    def check_night_mode(self, start=0, end=7):
-        return start <= datetime.now().hour < end
-
-    def download_hls(self, url, name, headers, limit=False):
-        # [MADDE 4 & 10] m3u8 segment birleştirme ve Stealth indirme
-        ffmpeg = os.path.join("bin", "ffmpeg.exe")
-        output = os.path.join(self.download_path, f"{name}.mp4")
-        h_str = "".join([f"{k}: {v}\r\n" for k, v in headers.items()])
+    def init_system(self):
+        for folder in ["config", "bin", "Downloads"]:
+            if not os.path.exists(folder): os.makedirs(folder)
         
-        cmd = [ffmpeg, '-headers', h_str, '-i', url, '-c', 'copy', '-y', output]
-        if limit: cmd.insert(1, "-re") # Hız sınırlama simülasyonu
-        return subprocess.Popen(cmd, creationflags=0x08000000)
+        # [MADDE 6] User Agent Listesi (20+ Gerçekçi Header)
+        if not os.path.exists(self.paths["ua"]):
+            uas = [f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.randint(110,120)}.0.0.0 Safari/537.36" for _ in range(20)]
+            self.save_json(self.paths["ua"], uas)
+        
+        if not os.path.exists(self.paths["config"]):
+            self.save_json(self.paths["config"], {"night_start": 0, "night_end": 7, "max_dl": 5})
+            
+        if not os.path.exists(self.paths["favs"]):
+            self.save_json(self.paths["favs"], [])
 
-# --- [MADDE 5, 6, 12] ANA ARAYÜZ (GUI) ---
+    def save_json(self, path, data):
+        with open(path, "w", encoding="utf-8") as f: json.dump(data, f, indent=4)
+
+    def load_json(self, path):
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f: return json.load(f)
+        return []
+
+# --- [MADDE 3, 4, 10] İNDİRME MOTORU ---
+class DownloadEngine:
+    def __init__(self, core):
+        self.core = core
+        self.active_processes = {}
+
+    def is_night_mode(self):
+        settings = self.core.load_json(self.core.paths["config"])
+        now = datetime.now().hour
+        return settings["night_start"] <= now < settings["night_end"]
+
+    def start_stream_download(self, url, filename):
+        # [MADDE 10] Stealth Header Rotasyonu
+        uas = self.core.load_json(self.core.paths["ua"])
+        headers = {
+            "User-Agent": random.choice(uas),
+            "Accept": "*/*",
+            "Connection": "keep-alive"
+        }
+        
+        # [MADDE 4] FFmpeg ile m3u8 indirme
+        ffmpeg_path = os.path.join("bin", "ffmpeg.exe")
+        output = os.path.join("Downloads", f"{filename}.mp4")
+        
+        h_str = "".join([f"{k}: {v}\r\n" for k, v in headers.items()])
+        cmd = [ffmpeg_path, '-headers', h_str, '-i', url, '-c', 'copy', '-y', output]
+        
+        if self.is_night_mode():
+            cmd.insert(1, "-re") # Hız sınırlama
+            
+        proc = subprocess.Popen(cmd, creationflags=0x08000000)
+        self.active_processes[filename] = proc
+
+# --- [MADDE 12] ANA ARAYÜZ ---
 class EMSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("EMS Stream Downloader - FULL VERSION")
-        self.geometry("1150x750")
+        self.core = EMSCore()
+        self.engine = DownloadEngine(self.core)
         
-        self.stealth = StealthEngine()
-        self.core = CoreEngine()
+        self.title("EMS Stream Downloader Pro - v1.0")
+        self.geometry("1100x750")
         self.setup_ui()
 
     def setup_ui(self):
-        # Yan Menü
+        # Sidebar
         self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0)
         self.sidebar.pack(side="left", fill="y")
         
         ctk.CTkLabel(self.sidebar, text="EMS STREAM", font=("Impact", 32)).pack(pady=40)
         
-        # İş Emri Modülleri
-        ctk.CTkButton(self.sidebar, text="📥 İndirmeler", command=self.ui_queue).pack(pady=10, padx=20)
+        # [FONKSİYONEL BUTONLAR]
+        ctk.CTkButton(self.sidebar, text="📥 Kuyruk", command=self.ui_queue).pack(pady=10, padx=20)
         ctk.CTkButton(self.sidebar, text="📺 Xtream / XUI", command=self.ui_xtream).pack(pady=10, padx=20)
-        ctk.CTkButton(self.sidebar, text="🧲 Torrent / Magnet", command=self.ui_torrent).pack(pady=10, padx=20)
+        ctk.CTkButton(self.sidebar, text="⭐ Favoriler", command=self.ui_favs).pack(pady=10, padx=20)
         ctk.CTkButton(self.sidebar, text="📡 RSS Takip", command=self.ui_rss).pack(pady=10, padx=20)
-        ctk.CTkButton(self.sidebar, text="⭐ Favoriler", command=self.ui_fav).pack(pady=10, padx=20)
         
-        self.status_lbl = ctk.CTkLabel(self.sidebar, text="MOD: GÜNDÜZ", text_color="green")
-        self.status_lbl.pack(side="bottom", pady=20)
+        self.mode_info = ctk.CTkLabel(self.sidebar, text="MOD: KONTROL EDİLİYOR...", font=("Arial", 12))
+        self.mode_info.pack(side="bottom", pady=20)
+        self.update_mode_status()
 
-        # İçerik Alanı
-        self.view = ctk.CTkFrame(self, corner_radius=15)
-        self.view.pack(side="right", fill="both", expand=True, padx=20, pady=20)
+        self.container = ctk.CTkFrame(self, corner_radius=15)
+        self.container.pack(side="right", fill="both", expand=True, padx=20, pady=20)
         self.ui_queue()
 
-    def ui_queue(self):
-        self._clear()
-        ctk.CTkLabel(self.view, text="Aktif İndirme Kuyruğu [MADDE 5]", font=("Arial", 22, "bold")).pack(pady=10)
-        scroll = ctk.CTkScrollableFrame(self.view)
-        scroll.pack(fill="both", expand=True, padx=10, pady=10)
-        # Örnek Satır
-        row = ctk.CTkFrame(scroll)
-        row.pack(fill="x", pady=5)
-        ctk.CTkLabel(row, text="Kanal_Kaydı_1080p.mp4", width=250).pack(side="left", padx=10)
-        ctk.CTkProgressBar(row, width=300).pack(side="left", padx=10)
-        ctk.CTkLabel(row, text="4.5 MB/s").pack(side="left", padx=10)
-        ctk.CTkButton(row, text="DURDUR", width=60, fg_color="red").pack(side="right", padx=10)
+    def update_mode_status(self):
+        if self.engine.is_night_mode():
+            self.mode_info.configure(text="MOD: GECE (HIZ SINIRLI)", text_color="orange")
+        else:
+            self.mode_info.configure(text="MOD: GÜNDÜZ (TAM HIZ)", text_color="green")
+        self.after(30000, self.update_mode_status)
 
     def ui_xtream(self):
         self._clear()
-        ctk.CTkLabel(self.view, text="Xtream Codes & XUI.ONE Panel Girişi [MADDE 2]", font=("Arial", 22, "bold")).pack(pady=10)
-        ctk.CTkEntry(self.view, placeholder_text="Server URL (http://host:port)", width=450).pack(pady=5)
-        ctk.CTkEntry(self.view, placeholder_text="Username", width=450).pack(pady=5)
-        ctk.CTkEntry(self.view, placeholder_text="Password", show="*", width=450).pack(pady=5)
-        ctk.CTkButton(self.view, text="BAĞLAN VE LİSTELE", fg_color="green").pack(pady=20)
+        ctk.CTkLabel(self.container, text="Xtream / XUI.ONE Panel Girişi", font=("Arial", 22, "bold")).pack(pady=10)
+        
+        self.e_url = ctk.CTkEntry(self.container, placeholder_text="Sunucu URL", width=400)
+        self.e_url.pack(pady=5)
+        self.e_user = ctk.CTkEntry(self.container, placeholder_text="Kullanıcı Adı", width=400)
+        self.e_user.pack(pady=5)
+        self.e_pass = ctk.CTkEntry(self.container, placeholder_text="Şifre", show="*", width=400)
+        self.e_pass.pack(pady=5)
+        
+        ctk.CTkButton(self.container, text="KAYDET VE BAĞLAN", fg_color="green", command=self.action_save_xtream).pack(pady=20)
+
+    def action_save_xtream(self):
+        favs = self.core.load_json(self.core.paths["favs"])
+        favs.append({
+            "url": self.e_url.get(),
+            "user": self.e_user.get(),
+            "pass": self.e_pass.get(),
+            "type": "Xtream"
+        })
+        self.core.save_json(self.core.paths["favs"], favs)
+        self.ui_favs()
+
+    def ui_favs(self):
+        self._clear()
+        ctk.CTkLabel(self.container, text="Kayıtlı Favoriler", font=("Arial", 22, "bold")).pack(pady=10)
+        scroll = ctk.CTkScrollableFrame(self.container)
+        scroll.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        favs = self.core.load_json(self.core.paths["favs"])
+        for idx, f in enumerate(favs):
+            frame = ctk.CTkFrame(scroll)
+            frame.pack(fill="x", pady=5)
+            ctk.CTkLabel(frame, text=f"{f['url']} | {f['user']}").pack(side="left", padx=10)
+            ctk.CTkButton(frame, text="SİL", width=60, fg_color="red", command=lambda i=idx: self.action_delete_fav(i)).pack(side="right", padx=10)
+
+    def action_delete_fav(self, index):
+        favs = self.core.load_json(self.core.paths["favs"])
+        favs.pop(index)
+        self.core.save_json(self.core.paths["favs"], favs)
+        self.ui_favs()
+
+    def ui_queue(self):
+        self._clear()
+        ctk.CTkLabel(self.container, text="İndirme Kuyruğu", font=("Arial", 22, "bold")).pack(pady=10)
+        self.queue_scroll = ctk.CTkScrollableFrame(self.container)
+        self.queue_scroll.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        if not self.engine.active_processes:
+            ctk.CTkLabel(self.queue_scroll, text="Şu an aktif indirme bulunmuyor.", text_color="gray").pack(pady=20)
 
     def ui_rss(self):
         self._clear()
-        ctk.CTkLabel(self.view, text="RSS Otomatik İndirme [MADDE 11]", font=("Arial", 22, "bold")).pack(pady=10)
-        ctk.CTkEntry(self.view, placeholder_text="RSS Feed URL", width=450).pack(pady=5)
-        ctk.CTkEntry(self.view, placeholder_text="Filtre Kelimeleri (örn: 1080p, 4K)", width=450).pack(pady=5)
-        ctk.CTkButton(self.view, text="RSS İZLEMEYİ BAŞLAT").pack(pady=10)
-
-    def ui_torrent(self):
-        self._clear()
-        ctk.CTkLabel(self.view, text="Torrent / Magnet İndirme [MADDE 4 & 10]", font=("Arial", 22, "bold")).pack(pady=10)
-        ctk.CTkEntry(self.view, placeholder_text="Magnet Link veya Torrent URL", width=500).pack(pady=10)
-        ctk.CTkButton(self.view, text="TORRENT EKLE (Stealth Mode)").pack(pady=10)
-
-    def ui_fav(self):
-        self._clear()
-        ctk.CTkLabel(self.view, text="Favori Yayınlar ve Kayıtlar [MADDE 9]", font=("Arial", 22, "bold")).pack(pady=10)
+        ctk.CTkLabel(self.container, text="RSS Otomatik Takip", font=("Arial", 22, "bold")).pack(pady=10)
+        ctk.CTkEntry(self.container, placeholder_text="RSS URL", width=450).pack(pady=5)
+        ctk.CTkEntry(self.container, placeholder_text="Filtre Kelimeleri (örn: 1080p)", width=450).pack(pady=5)
+        ctk.CTkButton(self.container, text="RSS GÖREVİ OLUŞTUR").pack(pady=10)
 
     def _clear(self):
-        for w in self.view.winfo_children(): w.destroy()
+        for w in self.container.winfo_children(): w.destroy()
 
 if __name__ == "__main__":
     app = EMSApp()
