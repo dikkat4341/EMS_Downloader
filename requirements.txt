@@ -1,0 +1,6 @@
+customtkinter
+requests
+yt-dlp
+libtorrent
+cryptography
+pillow
