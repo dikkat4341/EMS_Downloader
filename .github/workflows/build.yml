@@ -19,7 +19,6 @@ jobs:
           pip install customtkinter requests yt-dlp pillow cryptography pyinstaller
       - name: Build Portable EXE
         run: |
-          # --add-data kullanarak config klasörünü EXE içine gömmüyoruz, çalışma anında oluşturuyoruz.
           pyinstaller --onefile --noconsole --name "EMS_Stream_Downloader" --collect-all customtkinter --collect-all PIL main.py
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
