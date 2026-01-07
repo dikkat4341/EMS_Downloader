@@ -1,38 +1,39 @@
 import customtkinter as ctk
-from core.dep_manager import DependencyManager
-from core.stealth import StealthEngine
-from core.engine import DownloadEngine
-from utils.config import ConfigManager
+import os, sys
+from core.dependency_mgr import DependencyManager
+from core.stealth_engine import StealthEngine
 
 class EMSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("EMS Stream Downloader - Stealth Portable")
-        self.geometry("1000x600")
+        self.title("EMS Stream Downloader - Portable v1.0")
+        self.geometry("900x550")
         
-        # Init Managers
-        self.config = ConfigManager().load()
-        DependencyManager().setup()
+        # Portable klasör kontrolü
+        if not os.path.exists("Downloads"): os.makedirs("Downloads")
+        if not os.path.exists("config"): os.makedirs("config")
+
+        # Bağımlılıkları kontrol et
+        self.dep_mgr = DependencyManager()
+        self.dep_mgr.check_and_install()
+
         self.stealth = StealthEngine()
-        self.engine = DownloadEngine(self.config)
+        self.setup_ui()
 
-        self._build_ui()
-
-    def _build_ui(self):
-        # Sidebar - Menü
-        self.sidebar = ctk.CTkFrame(self, width=200)
-        self.sidebar.pack(side="left", fill="y", padx=10, pady=10)
+    def setup_ui(self):
+        # Sol Menü
+        self.sidebar = ctk.CTkFrame(self, width=180, corner_radius=0)
+        self.sidebar.pack(side="left", fill="y")
         
-        ctk.CTkButton(self.sidebar, text="Yeni İndirme").pack(pady=5)
-        ctk.CTkButton(self.sidebar, text="Xtream UI / M3U").pack(pady=5)
-        ctk.CTkButton(self.sidebar, text="Geçmiş").pack(pady=5)
-        ctk.CTkButton(self.sidebar, text="Ayarlar").pack(side="bottom", pady=10)
+        self.logo = ctk.CTkLabel(self.sidebar, text="EMS DOWNLOADER", font=("Impact", 20))
+        self.logo.pack(pady=20)
 
-        # Ana Liste Alanı
-        self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="Aktif İndirmeler")
-        self.scroll_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
+        self.btn_new = ctk.CTkButton(self.sidebar, text="Yeni İndirme")
+        self.btn_new.pack(pady=10, px=10)
 
-    # İndirme başlatma, Xtream login vb. fonksiyonlar buraya eklenecek.
+        # Sağ Liste
+        self.main_list = ctk.CTkScrollableFrame(self, label_text="İndirme Kuyruğu")
+        self.main_list.pack(side="right", fill="both", expand=True, padx=20, pady=20)
 
 if __name__ == "__main__":
     app = EMSApp()
